@@ -1,0 +1,333 @@
+import json
+import numpy as np
+import os
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+from matplotlib.patches import Polygon
+from matplotlib.lines import Line2D
+from collections import defaultdict
+import pandas as pd
+
+
+
+
+def load_panel_data_returns_pd_dataframe(excel_path, sheet_name=0, label_col=0, value_col=1, 
+                    value_name="value", skiprows=0, nrows=None, usecols=None,center_value=0.0):
+    """
+    Reads aperture data from Excel and returns a DataFrame indexed by aperture label.
+
+    Parameters
+    ----------
+    excel_path : str
+        Path to the Excel file.
+    sheet_name : int or str
+        Sheet tab name or index. Default 0 (first sheet).
+    label_col : int
+        Column index containing aperture labels after usecols filtering. Default 0.
+    value_col : int
+        Column index containing values after usecols filtering. Default 1.
+    value_name : str
+        Name for the value column in the returned DataFrame. e.g. "tip", "tilt"
+    skiprows : int
+        Number of rows to skip at the top before reading. Default 0.
+    nrows : int or None
+        Number of rows to read. Use this to stop before summary rows. Default None (all).
+    usecols : str or None
+        Excel columns to read, e.g. "A,B" or "A,C". Default None (all columns).
+    """
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    excel_path = os.path.join(script_dir, excel_path)
+
+    df = pd.read_excel(
+        excel_path,
+        sheet_name=sheet_name,
+        header=None,
+        skiprows=skiprows,
+        nrows=nrows,
+        usecols=usecols,
+    )
+
+    # After usecols filtering, reset column positions to 0, 1, 2...
+    df.columns = range(len(df.columns))
+
+    df = df.rename(columns={label_col: "label", value_col: value_name})
+    df = df.set_index("label")[[value_name]]
+    df.loc["Aper0"] = center_value  # add this line
+    return df
+
+def df_to_panel_array(df, column, panel_map):
+    """Convert a labeled DataFrame column to ordered numpy array for the plotter."""
+    
+    return np.array([df.loc[panel_map[i], column] if panel_map[i] in df.index else 0.0
+                     for i in range(26)])
+
+
+
+
+# ----------------------------------------------------------------------
+# Internal helpers for union-find panel grouping
+# ----------------------------------------------------------------------
+
+def _union_find_groups(faces, u_edges):
+    """Group triangulated faces into physical panels via union-find on U edges."""
+    parent = list(range(len(faces)))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a, b):
+        parent[find(a)] = find(b)
+
+    edge_to_faces = {}
+    for fi, face in enumerate(faces):
+        n = len(face)
+        for k in range(n):
+            e = tuple(sorted((face[k], face[(k + 1) % n])))
+            edge_to_faces.setdefault(e, []).append(fi)
+
+    for e in u_edges:
+        if e in edge_to_faces and len(edge_to_faces[e]) == 2:
+            union(edge_to_faces[e][0], edge_to_faces[e][1])
+
+    groups = defaultdict(list)
+    for fi in range(len(faces)):
+        groups[find(fi)].append(fi)
+
+    return list(groups.values())
+
+
+def _panel_outline(face_group, faces, vertices, u_edges):
+    """Return ordered outline coordinates for a group of triangulated faces."""
+    edge_count = defaultdict(int)
+    for fi in face_group:
+        face = faces[fi]
+        n = len(face)
+        for k in range(n):
+            e = tuple(sorted((face[k], face[(k + 1) % n])))
+            edge_count[e] += 1
+
+    outer_edges = [e for e, cnt in edge_count.items()
+                   if cnt == 1 and e not in u_edges]
+
+    if not outer_edges:
+        return None
+
+    adj = defaultdict(list)
+    for a, b in outer_edges:
+        adj[a].append(b)
+        adj[b].append(a)
+
+    start = outer_edges[0][0]
+    ordered = [start]
+    prev = None
+    current = start
+    for _ in range(len(outer_edges)):
+        neighbors = adj[current]
+        next_v = next((nb for nb in neighbors if nb != prev), None)
+        if next_v is None or next_v == start:
+            break
+        ordered.append(next_v)
+        prev = current
+        current = next_v
+
+    return vertices[ordered]
+
+
+# ----------------------------------------------------------------------
+# Main functions
+# ----------------------------------------------------------------------
+
+def plot_flasher_heatmap(
+    fold_path,
+    panel_data=None,
+    cmap_name="coolwarm",
+    title="Flasher Panel Heat Map",
+    colorbar_label="RSS Tip/Tilt [°]",
+    vmin=None,
+    vmax=None,
+    save_path=None,
+):
+    """
+    Plots a flasher .fold file as a heat map, filling each physical panel
+    with a color corresponding to a data value (e.g. RSS of tip and tilt).
+
+    Triangulated sub-faces are merged into physical panels using union-find
+    on the unassigned (U) edges. No cross-bar lines are drawn.
+
+    Parameters
+    ----------
+    fold_path : str
+        Path to the .fold file. Relative paths resolve from this script's directory.
+    panel_data : array-like or None
+        One scalar value per physical panel (26 for this flasher).
+        If None, random values are generated for demonstration.
+    cmap_name : str
+        Matplotlib colormap name. Default "coolwarm".
+    title : str
+        Figure title.
+    colorbar_label : str
+        Label for the colorbar axis.
+    vmin, vmax : float or None
+        Color scale limits. If None, computed from panel_data.
+    save_path : str or None
+        If provided, saves the figure to this path.
+    """
+
+    # 1. Load .fold file
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    fold_path = os.path.join(script_dir, fold_path)
+    with open(fold_path, "r") as f:
+        fold = json.load(f)
+
+    vertices    = np.array(fold["vertices_coords"])
+    edges_verts = fold["edges_vertices"]
+    assignments = fold["edges_assignment"]
+    faces       = fold["faces_vertices"]
+
+    # 2. Identify U edges (internal diagonals)
+    u_edges = {
+        tuple(sorted(e))
+        for e, a in zip(edges_verts, assignments)
+        if a in ("U", "F")
+    }
+
+    # 3. Group triangulated faces into physical panels
+    panel_groups = _union_find_groups(faces, u_edges)
+    n_panels = len(panel_groups)
+
+    # 4. Panel data
+    if panel_data is None:
+        rng = np.random.default_rng(42)
+        panel_data = rng.uniform(0, 3.0, size=n_panels)
+        print(f"No panel_data supplied — using {n_panels} random values.")
+    else:
+        panel_data = np.asarray(panel_data, dtype=float)
+        if len(panel_data) != n_panels:
+            raise ValueError(
+                f"panel_data length ({len(panel_data)}) must match "
+                f"number of physical panels ({n_panels}). "
+                f"Pass size={n_panels} when generating your array."
+            )
+
+    # 5. Color map
+    if vmin is None:
+        vmin = panel_data.min()
+    if vmax is None:
+        vmax = panel_data.max()
+
+    cmap  = plt.get_cmap(cmap_name)
+    cnorm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+
+    # 6. Plot filled panels
+    fig, ax = plt.subplots(figsize=(9, 8))
+
+    for panel_idx, face_group in enumerate(panel_groups):
+        outline = _panel_outline(face_group, faces, vertices, u_edges)
+        if outline is None:
+            continue
+        fc = cmap(cnorm(panel_data[panel_idx]))
+        ax.add_patch(Polygon(outline, closed=True,
+                             facecolor=fc, edgecolor="none", zorder=2))
+
+    # 7. Draw fold lines — skip all U/F edges
+    style_map = {
+        "M": {"color": "#c0392b", "lw": 1.8, "ls": "--",  "zorder": 4},
+        "V": {"color": "#2980b9", "lw": 1.4, "ls": "-.",  "zorder": 4},
+        "B": {"color": "black",   "lw": 2.2, "ls": "-",   "zorder": 5},
+    }
+    plotted = set()
+    for (i, j), asgn in zip(edges_verts, assignments):
+        if asgn in ("U", "F"):
+            continue
+        key = tuple(sorted((i, j)))
+        if key in plotted:
+            continue
+        plotted.add(key)
+        x = [vertices[i][0], vertices[j][0]]
+        y = [vertices[i][1], vertices[j][1]]
+        s = style_map.get(asgn, style_map["M"])
+        ax.plot(x, y, color=s["color"], lw=s["lw"],
+                linestyle=s["ls"], zorder=s["zorder"])
+
+    # 8. Colorbar
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=cnorm)
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=ax, shrink=0.7, aspect=18, pad=0.02)
+    cbar.set_label(colorbar_label, fontsize=12)
+    cbar.ax.tick_params(labelsize=10)
+
+    # 9. Legend
+    legend_elements = [
+        Line2D([0], [0], color="#c0392b", lw=2,   ls="--", label="Mountain fold"),
+        Line2D([0], [0], color="#2980b9", lw=1.5, ls="-.", label="Valley fold"),
+        Line2D([0], [0], color="black",   lw=2.2, ls="-",  label="Boundary"),
+    ]
+    ax.legend(handles=legend_elements, loc="lower right", fontsize=9, framealpha=0.85)
+
+    # 10. Formatting
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_title(title, fontsize=14, fontweight="bold", pad=10)
+    ax.set_xlabel("X", fontsize=11)
+    ax.set_ylabel("Y", fontsize=11)
+    ax.grid(True, linestyle=":", alpha=0.3, zorder=0)
+    ax.autoscale_view()
+    fig.tight_layout()
+
+    if save_path:
+        fig.savefig(save_path, bbox_inches="tight", transparent=True)
+        print(f"Saved to {save_path}")
+
+    plt.show()
+    return fig, ax
+
+
+# def load_panel_data(excel_path, sheet_name=0, label_col=0, value_col=1, center_value=0.0):
+#     """
+#     Reads aperture tip/tilt data from an Excel sheet and returns a numpy array
+#     ordered to match the flasher plot panel indices.
+
+#     Parameters
+#     ----------
+#     excel_path : str
+#         Path to the Excel file.
+#     sheet_name : int or str
+#         Sheet to read. Default 0 (first sheet).
+#     label_col : int
+#         Column index containing aperture labels (e.g. 'Ap1G1'). Default 0.
+#     value_col : int
+#         Column index containing values. Default 1.
+#     center_value : float
+#         Value to assign to the center pentagon (Aper0), which is not in the
+#         Excel sheet. Default 0.0.
+
+#     Returns
+#     -------
+#     np.ndarray of shape (26,) ordered by fold panel index.
+#     """
+
+#     panel_map = {
+#         0:  "Ap1G3",  1:  "Ap3G2",  2:  "Ap5G1",
+#         3:  "Ap2G3",  4:  "Ap4G2",  5:  "Ap1G2",
+#         6:  "Ap3G1",  7:  "Ap5G5",  8:  "Ap2G2",
+#         9:  "Ap4G1",  10: "Ap1G1",  11: "Ap3G5",
+#         12: "Ap5G4",  13: "Ap2G1",  14: "Ap4G5",
+#         15: "Ap1G5",  16: "Ap3G4",  17: "Ap5G3",
+#         18: "Ap2G5",  19: "Ap4G4",  20: "Ap1G4",
+#         21: "Ap3G3",  22: "Ap5G2",  23: "Ap2G4",
+#         24: "Ap4G3",  25: "Aper0"
+#     }
+#     script_dir = os.path.dirname(os.path.abspath(__file__))
+#     excel_path = os.path.join(script_dir, excel_path)
+#     print(f"Loading panel data from {excel_path} (sheet: {sheet_name})...")
+#     print("here are the sheets in the file for troubleshooting:")
+#     xl = pd.ExcelFile(excel_path)
+#     print(xl.sheet_names)
+#     df = pd.read_excel(excel_path, sheet_name=sheet_name, header=None)
+#     data_dict = dict(zip(df.iloc[:, label_col], df.iloc[:, value_col]))
+#     data_dict["Aper0"] = center_value
+
+#     return np.array([data_dict[panel_map[i]] for i in range(26)])
+
