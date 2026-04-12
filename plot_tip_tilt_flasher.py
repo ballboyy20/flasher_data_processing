@@ -144,7 +144,7 @@ def plot_flasher_heatmap(
     fold_path,
     panel_data=None,
     cmap_name="coolwarm",
-    title="Flasher Panel Heat Map",
+    title=None,
     colorbar_label="RSS Tip/Tilt [°]",
     vmin=None,
     vmax=None,
@@ -231,26 +231,53 @@ def plot_flasher_heatmap(
         fc = cmap(cnorm(panel_data[panel_idx]))
         ax.add_patch(Polygon(outline, closed=True,
                              facecolor=fc, edgecolor="none", zorder=2))
+        
+    # 7. Draw coordinate frame on center pentagon
+    # Find centroid of center panel (panel index 25 = Aper0)
+    center_panel_idx = 25
+    center_group = panel_groups[center_panel_idx]
+    all_verts = []
+    for fi in center_group:
+        for vi in faces[fi]:
+            all_verts.append(vertices[vi])
+    centroid = np.mean(all_verts, axis=0)
 
-    # 7. Draw fold lines — skip all U/F edges
-    style_map = {
-        "M": {"color": "#c0392b", "lw": 1.8, "ls": "--",  "zorder": 4},
-        "V": {"color": "#2980b9", "lw": 1.4, "ls": "-.",  "zorder": 4},
-        "B": {"color": "black",   "lw": 2.2, "ls": "-",   "zorder": 5},
-    }
-    plotted = set()
-    for (i, j), asgn in zip(edges_verts, assignments):
-        if asgn in ("U", "F"):
-            continue
-        key = tuple(sorted((i, j)))
-        if key in plotted:
-            continue
-        plotted.add(key)
-        x = [vertices[i][0], vertices[j][0]]
-        y = [vertices[i][1], vertices[j][1]]
-        s = style_map.get(asgn, style_map["M"])
-        ax.plot(x, y, color=s["color"], lw=s["lw"],
-                linestyle=s["ls"], zorder=s["zorder"])
+    # Coordinate frame settings — adjust these
+    arrow_length = 0.3      # length of each axis arrow
+    rotation_deg = 17      # rotate the frame (degrees) — adjust until correct
+
+    angle = np.radians(rotation_deg)
+    rot = np.array([[np.cos(angle), -np.sin(angle)],
+                    [np.sin(angle),  np.cos(angle)]])
+
+    x_axis = rot @ np.array([1, 0]) * arrow_length
+    y_axis = rot @ np.array([0, 1]) * arrow_length
+
+    arrow_kwargs = dict(head_width=0.06, head_length=0.04, length_includes_head=True, zorder=6)
+
+    ax.arrow(centroid[0], centroid[1], x_axis[0], x_axis[1],
+             fc="black", ec="black", **arrow_kwargs)
+    ax.arrow(centroid[0], centroid[1], y_axis[0], y_axis[1],
+             fc="black", ec="black", **arrow_kwargs)
+
+    ax.text(centroid[0] + x_axis[0] * 1.2, centroid[1] + x_axis[1] * 1.2,
+            "X", color="black", fontsize=10, fontweight="bold", zorder=6, ha="center")
+    ax.text(centroid[0] + y_axis[0] * 1.2, centroid[1] + y_axis[1] * 1.2,
+            "Y", color="black", fontsize=10, fontweight="bold", zorder=6, ha="center")
+
+
+    # # 7. Draw panel boundary lines only
+    # plotted = set()
+    # for (i, j), asgn in zip(edges_verts, assignments):
+    #     if asgn in ("U", "F"):
+    #         continue
+    #     key = tuple(sorted((i, j)))
+    #     if key in plotted:
+    #         continue
+    #     plotted.add(key)
+    #     x = [vertices[i][0], vertices[j][0]]
+    #     y = [vertices[i][1], vertices[j][1]]
+    #     ax.plot(x, y, color="black", lw=1.5, linestyle="-", zorder=4)
 
     # 8. Colorbar
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=cnorm)
@@ -259,19 +286,19 @@ def plot_flasher_heatmap(
     cbar.set_label(colorbar_label, fontsize=12)
     cbar.ax.tick_params(labelsize=10)
 
-    # 9. Legend
-    legend_elements = [
-        Line2D([0], [0], color="#c0392b", lw=2,   ls="--", label="Mountain fold"),
-        Line2D([0], [0], color="#2980b9", lw=1.5, ls="-.", label="Valley fold"),
-        Line2D([0], [0], color="black",   lw=2.2, ls="-",  label="Boundary"),
-    ]
-    ax.legend(handles=legend_elements, loc="lower right", fontsize=9, framealpha=0.85)
+    # # 9. Legend
+    # legend_elements = [
+    #     Line2D([0], [0], color="black", lw=2.2, ls="-", label="Panel boundary"),
+    # ]
+    # ax.legend(handles=legend_elements, loc="lower right", fontsize=9, framealpha=0.85)
 
     # 10. Formatting
     ax.set_aspect("equal", adjustable="box")
     ax.set_title(title, fontsize=14, fontweight="bold", pad=10)
-    ax.set_xlabel("X", fontsize=11)
-    ax.set_ylabel("Y", fontsize=11)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xlabel("")
+    ax.set_ylabel("")
     ax.grid(True, linestyle=":", alpha=0.3, zorder=0)
     ax.autoscale_view()
     fig.tight_layout()
@@ -281,6 +308,7 @@ def plot_flasher_heatmap(
         print(f"Saved to {save_path}")
 
     plt.show()
+    fig.savefig(save_path, bbox_inches="tight", transparent=True)
     return fig, ax
 
 
