@@ -187,6 +187,13 @@ def plot_flasher_heatmap(
     assignments = fold["edges_assignment"]
     faces       = fold["faces_vertices"]
 
+    # After loading vertices, rotate the entire geometry
+    rotation_deg = -20  # adjust until oriented correctly ROTATE WHOLE FLASHER HERE
+    angle = np.radians(rotation_deg)
+    rot = np.array([[np.cos(angle), -np.sin(angle)],
+                    [np.sin(angle),  np.cos(angle)]])
+    vertices = vertices @ rot.T
+
     # 2. Identify U edges (internal diagonals)
     u_edges = {
         tuple(sorted(e))
@@ -244,7 +251,7 @@ def plot_flasher_heatmap(
 
     # Coordinate frame settings — adjust these
     arrow_length = 0.3      # length of each axis arrow
-    rotation_deg = 17      # rotate the frame (degrees) — adjust until correct
+    rotation_deg = 0.0      # rotate the frame (degrees) — adjust until correct ROTATE COORD FRAME HERE
 
     angle = np.radians(rotation_deg)
     rot = np.array([[np.cos(angle), -np.sin(angle)],
