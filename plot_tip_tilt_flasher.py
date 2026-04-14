@@ -290,7 +290,7 @@ def plot_flasher_heatmap(
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=cnorm)
     sm.set_array([])
     cbar = fig.colorbar(sm, ax=ax, shrink=0.7, aspect=18, pad=0.02)
-    cbar.set_label(colorbar_label, fontsize=12)
+    cbar.set_label(colorbar_label, fontsize=14, fontweight="bold")
     cbar.ax.tick_params(labelsize=10)
 
     # # 9. Legend
