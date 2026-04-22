@@ -399,21 +399,22 @@ def plot_euler_angle_heatmap(
     # ------------------------------------------------------------------
     # 8. Two colorbars — panel fill (left) and edge lines (right)
     # ------------------------------------------------------------------
-    # Panel fill colorbar
-    sm_panel = plt.cm.ScalarMappable(cmap=panel_cmap, norm=panel_cnorm)
-    sm_panel.set_array([])
-    cbar_panel = fig.colorbar(sm_panel, ax=ax, shrink=0.7, aspect=30,
-                              pad=0.01, location="right")
-    cbar_panel.set_label(panel_colorbar_label, fontsize=12, fontweight="bold")
-    cbar_panel.ax.tick_params(labelsize=9)
 
     # Edge line colorbar — placed to the right of the panel colorbar
     sm_edge = plt.cm.ScalarMappable(cmap=edge_cmap, norm=edge_cnorm)
     sm_edge.set_array([])
     cbar_edge = fig.colorbar(sm_edge, ax=ax, shrink=0.7, aspect=30,
                              pad=0.01, location="right")
-    cbar_edge.set_label(edge_colorbar_label, fontsize=12, fontweight="bold")
+    cbar_edge.set_label(edge_colorbar_label, fontsize=14, fontweight="bold")
     cbar_edge.ax.tick_params(labelsize=9)
+
+    # Panel fill colorbar
+    sm_panel = plt.cm.ScalarMappable(cmap=panel_cmap, norm=panel_cnorm)
+    sm_panel.set_array([])
+    cbar_panel = fig.colorbar(sm_panel, ax=ax, shrink=0.7, aspect=30,
+                              pad=0.01, location="right")
+    cbar_panel.set_label(panel_colorbar_label, fontsize=14, fontweight="bold")
+    cbar_panel.ax.tick_params(labelsize=9)
 
 
 

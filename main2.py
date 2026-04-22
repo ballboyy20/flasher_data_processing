@@ -151,15 +151,15 @@ plot_euler_angle_heatmap(
         panel_data=mean_euler_angle["mean_euler_angle"],
         edge_data=edge_data,
         panel_cmap_name="viridis",
-        edge_cmap_name="hot_r",
+        edge_cmap_name="Reds",
         figsize=(10, 9),
-        panel_colorbar_label="Mean Euler Angle [°]",
-        edge_colorbar_label="Mean Relative Angle [°]",
+        panel_colorbar_label="Mean Euler Angle Relative to Center Panel Normal [°]",
+        edge_colorbar_label="Mean Euler Angle Relative to Adjacent Panel [°]",
         panel_vmax=max_euler_angle_value,
         edge_linewidth=5.0,
         save_path="euler_angle_heatmap.png",
     )
 
 print("The max euler angle value across all deployments is:", max_euler_angle_value)
-print("The max panel to panel relative angle across all deployments is:", max(edge_data["mean_relative_angle"]))
+print("The max panel to panel relative angle across all deployments is:", max(edge_data.values()))
 #%%
