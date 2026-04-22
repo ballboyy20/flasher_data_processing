@@ -1,7 +1,6 @@
 #%%
 import numpy as np
 import pandas as pd
-from plot_tip_tilt_flasher import *
 from plot_decenter_flasher import *
 
 fold_path = "r1_h2_m5_flasher.fold"
@@ -202,6 +201,7 @@ mean_magnitude_decenter = pd.DataFrame({
         axis=1).mean(axis=1)
 })
 
+
 max_decenter_value = mean_magnitude_decenter["mean_magnitude_decenter"].max()
 
 decenter_data = build_decenter_dict(
@@ -219,10 +219,12 @@ decenter_data = build_decenter_dict(
 plot_decenter_heatmap_datapoints(
     fold_path=fold_path,
     panel_map=panel_map,
+    mask_panels=[25],  # mask center panel
     panel_data=mean_magnitude_decenter["mean_magnitude_decenter"],
     decenter_data=decenter_data,
     point_labels=["Deployment 1", "Deployment 2", "Deployment 3", "Deployment 4"],
     cmap_name="viridis",
+    figsize=(10, 9),
     title="",
     colorbar_label="Mean Decenter Magnitude [mm]",
     vmin=0,
@@ -230,10 +232,15 @@ plot_decenter_heatmap_datapoints(
     save_path="mean_decenter_heatmap_with_datapoints.png",
     scale_factor=0.15,
     use_local_frame=False,
+    origin_dot_size=1,
     origin_dot_color="black",
     data_dot_size=60,
-    show_crosshair=True,
-    crosshair_size=0.04,
+    data_linewidth=0.7,
+    data_outline_linewidth=0.9,
+    show_crosshair=True, #lets change the greeeeeeeeen
+    crosshair_size=0.03,
+    crosshair_color="black",
+    crosshair_lw=1.2
 )
 
 #%%

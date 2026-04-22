@@ -12,6 +12,59 @@ from collections import defaultdict
 # Internal helpers
 # ----------------------------------------------------------------------
 
+
+def load_panel_data_returns_pd_dataframe(excel_path, sheet_name=0, label_col=0, value_col=1, 
+                    value_name="value", skiprows=0, nrows=None, usecols=None,center_value=0.0):
+    """
+    Reads aperture data from Excel and returns a DataFrame indexed by aperture label.
+
+    Parameters
+    ----------
+    excel_path : str
+        Path to the Excel file.
+    sheet_name : int or str
+        Sheet tab name or index. Default 0 (first sheet).
+    label_col : int
+        Column index containing aperture labels after usecols filtering. Default 0.
+    value_col : int
+        Column index containing values after usecols filtering. Default 1.
+    value_name : str
+        Name for the value column in the returned DataFrame. e.g. "tip", "tilt"
+    skiprows : int
+        Number of rows to skip at the top before reading. Default 0.
+    nrows : int or None
+        Number of rows to read. Use this to stop before summary rows. Default None (all).
+    usecols : str or None
+        Excel columns to read, e.g. "A,B" or "A,C". Default None (all columns).
+    """
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    excel_path = os.path.join(script_dir, excel_path)
+
+    df = pd.read_excel(
+        excel_path,
+        sheet_name=sheet_name,
+        header=None,
+        skiprows=skiprows,
+        nrows=nrows,
+        usecols=usecols,
+    )
+
+    # After usecols filtering, reset column positions to 0, 1, 2...
+    df.columns = range(len(df.columns))
+
+    df = df.rename(columns={label_col: "label", value_col: value_name})
+    df = df.set_index("label")[[value_name]]
+    df.loc["Aper0"] = center_value  # add this line
+    return df
+
+def df_to_panel_array(df, column, panel_map):
+    """Convert a labeled DataFrame column to ordered numpy array for the plotter."""
+    
+    return np.array([df.loc[panel_map[i], column] if panel_map[i] in df.index else 0.0
+                     for i in range(26)])
+
+
+
 def _union_find_groups(faces, u_edges):
     parent = list(range(len(faces)))
 
@@ -121,10 +174,12 @@ def _panel_local_axes(face_group, faces, vertices):
 def plot_decenter_heatmap_datapoints(
     fold_path,
     panel_map=None,
+    mask_panels=None,
     panel_data=None,
     decenter_data=None,
     point_labels=None,
     cmap_name="coolwarm",
+    figsize=(9, 8),
     title=None,
     colorbar_label="RSS Tip/Tilt [°]",
     vmin=None,
@@ -135,7 +190,8 @@ def plot_decenter_heatmap_datapoints(
     origin_dot_size=30,
     origin_dot_color="white",
     data_dot_size=50,
-    data_dot_marker="o",
+    data_linewidth=0.7,
+    data_outline_linewidth=0.5,
     show_crosshair=True,
     crosshair_size=0.04,
     crosshair_color="white",
@@ -187,14 +243,17 @@ def plot_decenter_heatmap_datapoints(
 
     # Wong (2011) colorblind-safe palette — standard in many journals
     SERIES_COLORS = [
-        "#E69F00",  # orange
         "#56B4E9",  # sky blue
-        "#009E73",  # bluish green
         "#CC79A7",  # reddish purple
+        "#FF6B00",  # vivid orange
+        "#E63946",  # bright red
+        "#009E73",  # bluish green
         "#0072B2",  # blue
-        "#D55E00",  # vermillion
         "#F0E442",  # yellow
+        "#CC79BE",  # reddish purple
     ]
+
+    SERIES_MARKERS = ["D","^","o","d"]  # circle, square, triangle, diamond
 
     # ------------------------------------------------------------------
     # 1. Load .fold file
@@ -252,6 +311,16 @@ def plot_decenter_heatmap_datapoints(
                 f"panel_data length ({len(panel_data)}) must match "
                 f"number of physical panels ({n_panels})."
             )
+        
+    # ------------------------------------------------------------------
+    # 4c. Mask specified panels (shown as gray "no data")
+    # ------------------------------------------------------------------
+    if mask_panels is not None:
+        mask = [i in mask_panels for i in range(n_panels)]
+        panel_data = np.ma.array(panel_data, mask=mask)
+
+    cmap = plt.get_cmap(cmap_name).copy()
+    cmap.set_bad(color="lightgray")
     # ------------------------------------------------------------------
     # 5. Colormap
     # ------------------------------------------------------------------
@@ -266,13 +335,16 @@ def plot_decenter_heatmap_datapoints(
     # ------------------------------------------------------------------
     # 6. Plot filled panels
     # ------------------------------------------------------------------
-    fig, ax = plt.subplots(figsize=(9, 8))
+    fig, ax = plt.subplots(figsize=figsize)
 
     for panel_idx, face_group in enumerate(panel_groups):
         outline = _panel_outline(face_group, faces, vertices, u_edges)
         if outline is None:
             continue
-        fc = cmap(cnorm(panel_data[panel_idx]))
+        if np.ma.is_masked(panel_data[panel_idx]):
+            fc = "lightgray"
+        else:
+            fc = cmap(cnorm(panel_data[panel_idx]))
         ax.add_patch(Polygon(outline, closed=True,
                              facecolor=fc, edgecolor="none", zorder=2))
         
@@ -318,6 +390,9 @@ def plot_decenter_heatmap_datapoints(
         for panel_idx, face_group in enumerate(panel_groups):
             centroid = _panel_centroid(face_group, faces, vertices)
 
+            if panel_idx == 25:  # skip center pentagon
+                continue
+
             # Crosshair
             if show_crosshair:
                 cs = crosshair_size
@@ -331,7 +406,7 @@ def plot_decenter_heatmap_datapoints(
             # Origin dot
             ax.scatter(centroid[0], centroid[1],
                        s=origin_dot_size, c=origin_dot_color,
-                       zorder=7, marker="o", edgecolors="gray", linewidths=0.5)
+                       zorder=7, marker="o", edgecolors="gray", linewidths=.5)
 
             # Data points
             if panel_idx in decenter_data:
@@ -341,6 +416,7 @@ def plot_decenter_heatmap_datapoints(
 
                 for i, (dx, dy) in enumerate(pts):
                     color = SERIES_COLORS[i % len(SERIES_COLORS)]
+                    marker = SERIES_MARKERS[i % len(SERIES_MARKERS)]
 
                     if use_local_frame:
                         x_hat, y_hat = _panel_local_axes(face_group, faces, vertices)
@@ -352,19 +428,19 @@ def plot_decenter_heatmap_datapoints(
 
                     ax.scatter(data_pos[0], data_pos[1],
                                s=data_dot_size, c=color,
-                               marker=data_dot_marker, zorder=8,
-                               edgecolors="white", linewidths=0.5)
+                               marker=marker, zorder=8,
+                               edgecolors="white", linewidths=data_outline_linewidth)
 
                     ax.plot([centroid[0], data_pos[0]],
                             [centroid[1], data_pos[1]],
-                            color=color, lw=0.7, zorder=6, alpha=0.5)
+                            color="black", lw=data_linewidth, zorder=6, alpha=0.5)
 
     # ------------------------------------------------------------------
     # 9. Colorbar
     # ------------------------------------------------------------------
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=cnorm)
     sm.set_array([])
-    cbar = fig.colorbar(sm, ax=ax, shrink=0.7, aspect=18, pad=0.02)
+    cbar = fig.colorbar(sm, ax=ax, shrink=0.8, aspect=40, pad=0.01)
     cbar.set_label(colorbar_label, fontsize=14, fontweight="bold")
     cbar.ax.tick_params(labelsize=10)
 
@@ -376,29 +452,29 @@ def plot_decenter_heatmap_datapoints(
 
         for i in range(n_series):
             color = SERIES_COLORS[i % len(SERIES_COLORS)]
+            marker = SERIES_MARKERS[i % len(SERIES_MARKERS)]
             legend_elements.append(
-                Line2D([0], [0], marker=data_dot_marker, color="none",
+                Line2D([0], [0], marker=marker, color="none",
                        markerfacecolor=color, markeredgecolor="white",
-                       markeredgewidth=0.5, markersize=7,
+                       markeredgewidth=0.5, markersize=10,
                        label=point_labels[i])
             )
 
         # Origin reference
         legend_elements.append(
-            Line2D([0], [0], marker="o", color="none",
-                   markerfacecolor=origin_dot_color,
-                   markeredgecolor="gray", markeredgewidth=0.5,
-                   markersize=6, label="Ideal position (0, 0)")
+            Line2D([0], [0], marker="+", color="none",
+                markerfacecolor="none", markeredgecolor="black",
+                markeredgewidth=1.5, markersize=10,
+                label="Ideal position (0, 0)")
         )
 
         ax.legend(
             handles=legend_elements,
             loc="lower right",
             fontsize=9,
-            framealpha=0.9,
+            # framealpha=0.9,
             edgecolor="0.7",
-            title="De-center overlay",
-            title_fontsize=9,
+            title_fontsize=10,
         )
 
     # ------------------------------------------------------------------
