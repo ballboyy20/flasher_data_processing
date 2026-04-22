@@ -1,8 +1,10 @@
 #%%
 import numpy as np
 import pandas as pd
-from plot_tiptilt_flasher import *
 from plot_decenter_flasher import *
+from plot_tiptilt_flasher import *
+
+
 
 fold_path = "r1_h2_m5_flasher.fold"
 
@@ -100,10 +102,25 @@ tilt_deployment4 = load_panel_data_returns_pd_dataframe(
     skiprows=6, nrows=25, usecols="B,D"
 )
 
-euler_angle_deployment1 = np.sqrt(tip_deployment1["tip_deployment1"]**2 + tilt_deployment1["tilt_deployment1"]**2)
-euler_angle_deployment2 = np.sqrt(tip_deployment2["tip_deployment2"]**2 + tilt_deployment2["tilt_deployment2"]**2)
-euler_angle_deployment3 = np.sqrt(tip_deployment3["tip_deployment3"]**2 + tilt_deployment3["tilt_deployment3"]**2)
-euler_angle_deployment4 = np.sqrt(tip_deployment4["tip_deployment4"]**2 + tilt_deployment4["tilt_deployment4"]**2)
+euler_angle_deployment1 = tip_deployment1["tip_deployment1"].combine(
+    tilt_deployment1["tilt_deployment1"],
+    lambda t, tl: tip_tilt_to_euler(t, tl)
+)
+
+euler_angle_deployment2 = tip_deployment2["tip_deployment2"].combine(
+    tilt_deployment2["tilt_deployment2"],
+    lambda t, tl: tip_tilt_to_euler(t, tl)
+)
+
+euler_angle_deployment3 = tip_deployment3["tip_deployment3"].combine(
+    tilt_deployment3["tilt_deployment3"],
+    lambda t, tl: tip_tilt_to_euler(t, tl)
+)
+
+euler_angle_deployment4 = tip_deployment4["tip_deployment4"].combine(
+    tilt_deployment4["tilt_deployment4"],
+    lambda t, tl: tip_tilt_to_euler(t, tl)
+)
 
 mean_euler_angle = pd.DataFrame({
     "mean_euler_angle": pd.concat([
@@ -131,7 +148,7 @@ plot_euler_angle_heatmap(
         fold_path=fold_path,
         panel_map=panel_map,
         mask_panels=[25],
-        panel_data=panel_vals,
+        panel_data=mean_euler_angle["mean_euler_angle"],
         edge_data=edge_data,
         panel_cmap_name="viridis",
         edge_cmap_name="hot_r",
@@ -143,4 +160,6 @@ plot_euler_angle_heatmap(
         save_path="euler_angle_heatmap.png",
     )
 
+print("The max euler angle value across all deployments is:", max_euler_angle_value)
+print("The max panel to panel relative angle across all deployments is:", max(edge_data["mean_relative_angle"]))
 #%%

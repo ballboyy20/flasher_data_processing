@@ -8,7 +8,17 @@ from matplotlib.patches import Polygon
 from matplotlib.lines import Line2D
 from matplotlib.collections import LineCollection
 from collections import defaultdict
+import pandas as pd
 
+
+def tip_tilt_to_euler(tip_deg, tilt_deg):
+    """Rigorous angle between panel normal and center normal (0,0,1)."""
+    tip  = np.radians(tip_deg)
+    tilt = np.radians(tilt_deg)
+    nx = np.sin(tilt)
+    ny = np.sin(tip)
+    nz = np.sqrt(max(0.0, 1 - nx**2 - ny**2))
+    return np.degrees(np.arccos(np.clip(nz, -1.0, 1.0)))
 
 def _find_shared_edges(panel_groups, faces, vertices, u_edges):
     """
@@ -393,7 +403,7 @@ def plot_euler_angle_heatmap(
     sm_panel = plt.cm.ScalarMappable(cmap=panel_cmap, norm=panel_cnorm)
     sm_panel.set_array([])
     cbar_panel = fig.colorbar(sm_panel, ax=ax, shrink=0.7, aspect=30,
-                              pad=0.02, location="right")
+                              pad=0.01, location="right")
     cbar_panel.set_label(panel_colorbar_label, fontsize=12, fontweight="bold")
     cbar_panel.ax.tick_params(labelsize=9)
 
@@ -401,17 +411,11 @@ def plot_euler_angle_heatmap(
     sm_edge = plt.cm.ScalarMappable(cmap=edge_cmap, norm=edge_cnorm)
     sm_edge.set_array([])
     cbar_edge = fig.colorbar(sm_edge, ax=ax, shrink=0.7, aspect=30,
-                             pad=0.12, location="right")
+                             pad=0.01, location="right")
     cbar_edge.set_label(edge_colorbar_label, fontsize=12, fontweight="bold")
     cbar_edge.ax.tick_params(labelsize=9)
 
-    # --- Legend for gray elements ---
-    legend_elements = [
-        Line2D([0], [0], color="lightgray", lw=3, label="No data (reference panel)"),
-        Line2D([0], [0], color="gray", lw=3, label="No edge data"),
-    ]
-    ax.legend(handles=legend_elements, loc="lower right",
-              fontsize=8, framealpha=0.9, edgecolor="0.7")
+
 
     # ------------------------------------------------------------------
     # 9. Formatting
@@ -440,28 +444,15 @@ def plot_euler_angle_heatmap(
 def build_edge_data_dict(shared_edges, panel_map,
                          tip_dfs, tilt_dfs,
                          tip_cols, tilt_cols):
-    """
-    Compute mean relative euler angle for each shared edge across deployments.
 
-    Parameters
-    ----------
-    shared_edges : list of (idx_a, idx_b, coords)
-        From _find_shared_edges() — or use get_shared_edges() helper below.
-    panel_map : dict
-        Maps panel_idx -> aperture label.
-    tip_dfs : list of DataFrames
-        One per deployment, indexed by aperture label.
-    tilt_dfs : list of DataFrames
-        One per deployment, indexed by aperture label.
-    tip_cols : list of str
-        Column name in each tip DataFrame.
-    tilt_cols : list of str
-        Column name in each tilt DataFrame.
+    def tip_tilt_to_normal(tip_deg, tilt_deg):
+        tip  = np.radians(tip_deg)
+        tilt = np.radians(tilt_deg)
+        nx = np.sin(tilt)
+        ny = np.sin(tip)
+        nz = np.sqrt(max(0.0, 1 - nx**2 - ny**2))  # max() guards against float rounding
+        return np.array([nx, ny, nz])
 
-    Returns
-    -------
-    dict : {(panel_idx_A, panel_idx_B): mean_relative_angle}
-    """
     edge_data = {}
 
     for (idx_a, idx_b, _) in shared_edges:
@@ -475,14 +466,16 @@ def build_edge_data_dict(shared_edges, panel_map,
         for tip_df, tilt_df, tip_col, tilt_col in zip(tip_dfs, tilt_dfs, tip_cols, tilt_cols):
             if (label_a in tip_df.index and label_b in tip_df.index and
                     label_a in tilt_df.index and label_b in tilt_df.index):
+
                 tip_a  = float(tip_df.loc[label_a,  tip_col])
                 tip_b  = float(tip_df.loc[label_b,  tip_col])
                 tilt_a = float(tilt_df.loc[label_a, tilt_col])
                 tilt_b = float(tilt_df.loc[label_b, tilt_col])
 
-                rel_tip  = tip_a  - tip_b
-                rel_tilt = tilt_a - tilt_b
-                relative_angles.append(np.sqrt(rel_tip**2 + rel_tilt**2))
+                n_a = tip_tilt_to_normal(tip_a, tilt_a)
+                n_b = tip_tilt_to_normal(tip_b, tilt_b)
+                angle = np.degrees(np.arccos(np.clip(np.dot(n_a, n_b), -1.0, 1.0)))
+                relative_angles.append(angle)
 
         if relative_angles:
             edge_data[(idx_a, idx_b)] = float(np.mean(relative_angles))

@@ -6,7 +6,7 @@ import matplotlib.colors as mcolors
 from matplotlib.patches import Polygon
 from matplotlib.lines import Line2D
 from collections import defaultdict
-
+import pandas as pd
 
 # ----------------------------------------------------------------------
 # Internal helpers
